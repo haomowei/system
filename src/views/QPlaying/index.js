@@ -4,10 +4,12 @@ import {PlaySquareOutlined, SnippetsOutlined, DownloadOutlined, PlayCircleOutlin
 import '../css/style.less'
 import 'rrweb/dist/rrweb.min.css'
 import 'rrweb-player/dist/style.css'
+import Oss from 'ali-oss'
 // import {get} from '../../api/index-网络拦截'
 import {getDatas} from '../../api'
 import rrwebPlayer from 'rrweb-player'
 import {BASE_URL} from '../../configs'
+import axios from 'axios'
 
 const {Header} = Layout
 const {Step, progressDot} = Steps
@@ -27,9 +29,12 @@ class Playing extends React.Component {
             },
             btnType1: 'primary',
             btnType2: 'default',
+            ossData:'111',//oss视频数据
             isShow: false,
             tag: true,
             events: '',
+            ossName:'',//oss文件名称路径
+            eventSingle:'',//节点历史视频
             current: 0,
             vId:'',//播放中的视频
             stepList: [
@@ -74,23 +79,75 @@ class Playing extends React.Component {
         doms.innerHTML = `
                         <div style="color:white;font-size: 30px;text-align: center;margin:150px 0 0;">loading...</div>
                     `
+        this.getOssToken()
         await this.getVideoData(1)
 
     }
+    //获取osstoken
+    getOssToken = async ()=>{
+        await getDatas('/oss/getToken')
+            .then(res=>{
+                this.setState({
+                    accessKeyId: res.data.accessKeyId,
+                    accessKeySecret: res.data.accessKeySecret,
+                    region: res.data.region,
+                    bucket: res.data.bucket
+                })
+            })
+    }
+    getOss = async () =>{
+        console.log(this.state.accessKeyId)
+        let client = Oss({
+            accessKeyId: this.state.accessKeyId,
+            accessKeySecret: this.state.accessKeySecret,
+            region: this.state.region,
+            bucket:this.state.bucket
+        });
+        console.log('this.state.ossName',this.state.ossName)
+        let url = client.signatureUrl(this.state.ossName);
+        await axios({
+            url,
+            method:'get',
+            async: false,
+        })
+            .then(val=>{
+                this.setState({
+                    ossData:val.data
+                })
+                // console.log(this.state.ossData)
+                console.log((JSON.parse(this.state.ossData)).events)
+            })
+    }
 
-    getVideoData(parms) {
+    getVideoData= async(parms)=> {
         var _this = this
         return getDatas('/record/playInsuTrace', {
             vedioSeriesNo: this.props.match.params['id'],
             typeId: parms
         })
-            .then(res => {
+            .then(async res => {
                 if (res.code === 0) {
                     console.log('videoDatas', res.data)
                     //增加判断record不为null 20201104
+
                     if (Array.isArray(res.data)) {
                         this.setState({
-                            events: JSON.parse(JSON.parse(res.data[0].record)).events,
+                            ossName:res.data[0].record
+                        })
+                        console.log(this.state.ossName)
+                        if(this.state.ossName.toString().indexOf('events') != -1){
+                            this.setState({
+                                events: JSON.parse(JSON.parse(res.data[0].record)).events
+                            })
+                        }else{
+                            await this.getOss()
+                            this.setState({
+                                events: JSON.parse(this.state.ossData).events
+                            })
+
+                        }
+                        this.setState({
+                            // events: JSON.parse(JSON.parse(res.data[0].record)).events,
                             vedioSeriesNo: this.props.match.params['id'],
                             videoDatas: res.data[0],
                         })
@@ -155,21 +212,56 @@ class Playing extends React.Component {
         })
         let doms = this.myRef.current
         doms.innerHTML = ''
-        if (JSON.parse(JSON.parse((vDatas.find(value => {return value.id == e})).record)).events.length > 2) {
-            new rrwebPlayer({
-                target: this.myRef.current,
-                props: {
-                    events: JSON.parse(JSON.parse((vDatas.find(value => {
+        // if (JSON.parse(JSON.parse((vDatas.find(value => {return value.id == e})).record)).events.length > 2) {
+
+            if(this.state.ossName.toString().indexOf('events') != -1){
+                this.setState({
+                    eventSingle:JSON.parse(JSON.parse((vDatas.find(value => {
                         return value.id == e
-                    })).record)).events,
-                    autoPlay: false
-                },
-            })
-        }else {
-            this.myRef.current.innerHTML = `
+                    })).record)).events
+                },()=>{
+                    if (this.state.eventSingle.length > 2) {
+                        new rrwebPlayer({
+                            target: this.myRef.current,
+                            props: {
+                                events: this.state.eventSingle,
+                                autoPlay: false
+                            },
+                        })
+                    }else {
+                        this.myRef.current.innerHTML = `
                         <h1 style="color:white;font-size: 30px;text-align: center;marign-top:20px;">该节点视频数据为null</h1>
                     `
-        }
+                    }
+                })
+            }else{
+
+                this.setState({
+                    ossName:vDatas.find(value => {
+                        return value.id == e
+                    }).record
+                },async ()=>{
+                    await this.getOss()
+                    this.setState({
+                        eventSingle: JSON.parse(this.state.ossData).events
+                    },()=>{
+                        if (this.state.eventSingle.length > 2) {
+                            new rrwebPlayer({
+                                target: this.myRef.current,
+                                props: {
+                                    events: this.state.eventSingle,
+                                    autoPlay: false
+                                },
+                            })
+                        }else {
+                            this.myRef.current.innerHTML = `
+                        <h1 style="color:white;font-size: 30px;text-align: center;marign-top:20px;">该节点视频数据为null</h1>
+                    `
+                        }
+                    })
+                })
+            }
+
     }
     onChange = async (current) => {
         vDatas = []

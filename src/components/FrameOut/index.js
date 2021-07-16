@@ -19,7 +19,7 @@ const contrast = [
          sub: ['sub1-1','sub1-1-2']
     },
     {
-        path:['qplay'],
+        path:['qplay','qplaying'],
         sub: ['sub1-1','sub1-1-3']
     },
     {

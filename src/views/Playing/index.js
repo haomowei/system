@@ -5,10 +5,12 @@ import {PlaySquareOutlined, SnippetsOutlined, DownloadOutlined, PlayCircleOutlin
 import '../css/style.less'
 import 'rrweb/dist/rrweb.min.css'
 import 'rrweb-player/dist/style.css'
+import Oss from 'ali-oss'
 // import {get} from '../../api/index-网络拦截'
 import {getDatas} from '../../api'
 import rrwebPlayer from 'rrweb-player'
 import {BASE_URL} from '../../configs'
+import axios from 'axios'
 
 const {Header} = Layout
 const {Step, progressDot} = Steps
@@ -26,11 +28,13 @@ class Playing extends React.Component {
                 vedioSeriesNo: 748241956756258816,
                 typeId: 1
             },
+            ossData:'111',//oss视频数据
             btnType1: 'primary',
             btnType2: 'default',
             isShow: false,
             tag: true,
             events: '',
+            ossName:'',//oss文件名称路径
             current: 0,
             stepList: [
                 {
@@ -68,83 +72,96 @@ class Playing extends React.Component {
             typeId: 1
         }
     }
-    zip(str){
-        let binaryString = Pako.gzip(encodeURIComponent(str), { to: 'string' })
-        return btoa(binaryString);
-    }
-    unzip(b64Data) {
-        var strData   = atob(b64Data);
-        var charData  = strData.split('').map(function(x){return x.charCodeAt(0);});
-        var binData   = new Uint8Array(charData);
-        var data    = Pako.inflate(binData);
-        // strData   = String.fromCharCode.apply(null, new Uint16Array(data));
-        let array = new Uint16Array(data)
-        var res = '';
-        var chunk = 8 * 1024;
-        var i;
-        for (i = 0; i < array.length / chunk; i++) {
-            res += String.fromCharCode.apply(null, array.slice(i * chunk, (i + 1) * chunk));
-        }
-        res += String.fromCharCode.apply(null, array.slice(i * chunk));
-
-        strData = res
-        return decodeURIComponent(strData);
-    }
     componentDidMount = async () => {
         let doms = this.myRef.current
         doms.innerHTML = `
                         <div style="color:white;font-size: 30px;text-align: center;margin:150px 0 0;">loading...</div>
                     `
-        await this.getVideoData(1)
-
+        this.getOssToken()
+        this.getVideoData(1)
     }
-
-    getVideoData(parms) {
+    //获取osstoken
+    getOssToken = async ()=>{
+        await getDatas('/oss/getToken')
+            .then(res=>{
+                this.setState({
+                    accessKeyId: res.data.accessKeyId,
+                    accessKeySecret: res.data.accessKeySecret,
+                    region: res.data.region,
+                    bucket: res.data.bucket
+                })
+            })
+    }
+    getOss = async () =>{
+        console.log(this.state.accessKeyId)
+        let client = Oss({
+            accessKeyId: this.state.accessKeyId,
+            accessKeySecret: this.state.accessKeySecret,
+            region: this.state.region,
+            bucket:this.state.bucket
+        });
+        let url = client.signatureUrl(this.state.ossName);
+        await axios({
+            url,
+            method:'get',
+            async: false,
+        })
+            .then(val=>{
+                this.setState({
+                    ossData:val.data
+                })
+                // console.log(this.state.ossData)
+                // console.log((JSON.parse(this.state.ossData)).events)
+            })
+    }
+    getVideoData =async (parms)=> {
         var _this = this
         return getDatas('/record/insuTrace', {
             vedioSeriesNo: this.props.match.params['id'],
             typeId: parms
         })
-            .then(res => {
+            .then( async res => {
                 if (res.code === 0) {
                     console.log('videoDatas', res.data)
                     //增加判断record不为null 20201104
                     if (res.data.record) {
-                        let a = this.zip('dsdsdsdsdsds')
-                        console.log(a)
-                        console.log(this.unzip(a))
-                        // let a = btoa(Pako.deflate('12121212', {
-                        //     to: 'string'
-                        // }));
-                        // console.log(a)
-                        // try {
-                        //     let b = Pako.inflate(atob(a),{
-                        //         to:'string'
-                        //     })
-                        // } catch (err){
-                        //     console.log(err);
-                        // }
-
+//-------------------------------OSS改造-----------------------------------------
                         this.setState({
-                            events: JSON.parse(JSON.parse(res.data.record)).events,
-                            vedioSeriesNo: this.props.match.params['id'],
-                            videoDatas: res.data
+                            ossName:res.data.record
                         })
-                        // let doms = _this.myRef.current
-                        this.myRef.current.innerHTML = ''
-                        if (this.state.events.length > 2) {
-                            new rrwebPlayer({
-                                target: this.myRef.current,
-                                props: {
-                                    events: this.state.events,
-                                    autoPlay: false
-                                },
+                        console.log(this.state.ossName)
+                        if(this.state.ossName.toString().indexOf('events') != -1){
+                            this.setState({
+                                events: JSON.parse(JSON.parse(res.data.record)).events
                             })
-                        } else {
-                            this.myRef.current.innerHTML = `
+                        }else{
+                            await this.getOss()
+                            this.setState({
+                                events: JSON.parse(this.state.ossData).events
+                            })
+
+                        }
+                                this.setState({
+                                    vedioSeriesNo: this.props.match.params['id'],
+                                    videoDatas: res.data,
+                                })
+                                // let doms = _this.myRef.current
+                                this.myRef.current.innerHTML = ''
+                                if (this.state.events.length > 2) {
+                                    new rrwebPlayer({
+                                        target: this.myRef.current,
+                                        props: {
+                                            events: this.state.events,
+                                            autoPlay: false
+                                        },
+                                    })
+                                } else {
+                                    this.myRef.current.innerHTML = `
                         <h1 style="color:white;font-size: 30px;text-align: center;marign-top:20px;">该节点没有录制视频</h1>
                     `
-                        }
+                                }
+//----------------------------------结束----------------------------------
+
                     } else {
                         this.myRef.current.innerHTML = `
                         <h1 style="color:white;font-size: 30px;text-align: center;marign-top:20px;">该节点视频数据为null</h1>
