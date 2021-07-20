@@ -292,7 +292,7 @@ class Playing extends React.Component {
     }
 
     download(event) {
-        window.location.href = BASE_URL + '/record/download?vedioSeriesNo='+event
+        window.location.href = BASE_URL + '/record/downloadSecond?vedioSeriesNo='+event
     }
 
     render() {
